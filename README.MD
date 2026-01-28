@@ -4,6 +4,8 @@
 
 This script is designed for recording video on a Raspberry Pi using the `rpicam-vid` utility to capture H.264 video, and `ffmpeg` to segment the video into smaller files. It runs continuously within a specified time range (from 07:00 to 22:00) and saves the video files in a local directory (`$HOME/recordings`). The script splits the video into segments of 5 minutes (300 seconds) each.
 
+Additionally, a `rename.sh` script renames the recorded files based on their creation (birth) time, and a cron job schedule automates the recording, renaming, and cleanup processes.
+
 ## Features
 
 - Captures video from the Raspberry Pi camera.
@@ -11,12 +13,15 @@ This script is designed for recording video on a Raspberry Pi using the `rpicam-
 - Segments the video into files of 5-minute duration.
 - Records during specific hours (07:00 to 22:00).
 - Saves the video files to a specified directory (`$HOME/recordings`).
+- Renames video files based on their birth time to a more readable format.
+- Automatically cleans up old recordings and manages processes via cron jobs.
 
 ## Requirements
 
 - **Raspberry Pi** with a compatible camera module.
 - **rpicam-vid** utility (used for recording H.264 video).
 - **ffmpeg** utility (used for video segmentation and conversion).
+- **cron** utility (for scheduling tasks).
 
 ## Script Configuration
 
@@ -34,6 +39,8 @@ Below are the configurable parameters in the script:
 
 ## Script Breakdown
 
+### **record_video.sh**
+
 1. **Set Up Configuration**  
    The script starts by defining the configuration parameters, such as video resolution, bitrate, and segment duration. The `$BASE_DIR` is set to the recordings directory (`$HOME/recordings`).
 
@@ -49,9 +56,29 @@ Below are the configurable parameters in the script:
 4. **Restart After Stopping**  
    If the video capture stops for any reason, the script will wait for 2 seconds and then restart the recording process.
 
-## Usage
+### **rename.sh**
 
-1. **Make the script executable**:
-   ```bash
-   chmod +x record_video.sh
+The `rename.sh` script is responsible for renaming the recorded video files based on their creation (birth) time, making the filenames more readable and sorted by date and time.
 
+```bash
+#!/bin/bash
+
+BASE_DIR=/home/m0hcine24/recordings
+
+for file in $BASE_DIR/video_*.mp4; do
+
+    # Skip if ffmpeg (or anything) is writing to the file
+    if lsof "$file" 2>/dev/null | awk '{print $1}' | grep -q 'ffmpeg'; then
+        echo "⏭ Skipping (writing): $file"
+        continue
+    fi
+
+    # Get birth time, fallback to modify time if unavailable
+    birth=$(stat -c %w "$file")
+    [[ "$birth" == "-" ]] && birth=$(stat -c %y "$file")
+
+    new_name=$BASE_DIR/$(date -d "$birth" +"%d%m%Y_%H%M%S").mp4
+
+    echo "Renaming: $file → $new_name"
+    mv -- "$file" "$new_name"
+done
