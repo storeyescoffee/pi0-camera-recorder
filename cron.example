@@ -1,11 +1,11 @@
 # Run camera-recorder.sh every day at 07:00 AM (starts the recording process)
-00 07 * * * $HOME/camera-recorder.sh
+00 07 * * * $HOME/pi0-camera-recorder/camera-recorder.sh
 
 # Run camera-recorder.sh at system reboot (starts the recording process)
-@reboot     $HOME/camera-recorder.sh
+@reboot     $HOME/pi0-camera-recorder/camera-recorder.sh
 
 # Kill the camera-recorder.sh process every day at 11:00 PM (ends the recording process)
-00 23 * * * pkill -9 -f camera-recorder.sh
+# 00 23 * * * pkill -9 -f camera-recorder.sh
 
 # Run rename.sh every hour at minute 1 (handles file renaming or other tasks)
 01  * * * * ./rename.sh
