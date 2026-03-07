@@ -50,11 +50,36 @@ def next_start_datetime(now: datetime, start_h: int, start_m: int) -> datetime:
     return today_start + timedelta(days=1)
 
 
+def _clear_at_queue() -> None:
+    """Remove all existing at jobs so only one scheduled run exists."""
+    try:
+        result = subprocess.run(
+            ["atq"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return
+        for line in result.stdout.strip().splitlines():
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                subprocess.run(
+                    ["atrm", parts[0]],
+                    capture_output=True,
+                    timeout=5,
+                )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
 def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> None:
-    """Schedule script to run at start-time using at(1)."""
+    """Schedule script to run at start-time using at(1). Drops existing jobs first."""
     if shutil.which("at") is None:
         print("[ERROR] 'at' command not found. Install with: apt install at", file=sys.stderr)
         sys.exit(1)
+
+    _clear_at_queue()
 
     script = script_path or Path(__file__).resolve().parent / "camera_recorder.py"
     cmd = f"python3 {script}"
