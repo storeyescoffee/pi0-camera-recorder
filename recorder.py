@@ -71,14 +71,13 @@ def run_recorder(
     base_dir.mkdir(parents=True, exist_ok=True)
     first_segment = base_dir / "video_000000.mp4"
 
+    picam2 = Picamera2()
     video_config = {"size": (width, height), "format": "YUV420"}
-    config = Picamera2().create_video_configuration(
+    config = picam2.create_video_configuration(
         main=video_config,
         controls={"FrameRate": fps},
         transform=Transform(hflip=1, vflip=1),
     )
-
-    picam2 = Picamera2()
     picam2.configure(config)
 
     encoder = H264Encoder(bitrate=bitrate)
