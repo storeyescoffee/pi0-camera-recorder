@@ -1,8 +1,27 @@
 """Rename a single video segment to DDMMYYYY_HHMMSS.mp4."""
 
 import re
+import subprocess
 from pathlib import Path
 from datetime import datetime
+
+
+def _get_birth_time_linux(path: Path) -> float | None:
+    """Get file birth time via stat (GNU); Python's stat() often doesn't have it on Linux."""
+    try:
+        out = subprocess.run(
+            ["stat", "-c", "%W", path],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            t = float(out.stdout.strip())
+            if t > 0:
+                return t
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+    return None
 
 
 def _parse_renamed_stem(stem: str) -> tuple[str, int] | None:
@@ -18,17 +37,20 @@ def _parse_renamed_stem(stem: str) -> tuple[str, int] | None:
 
 
 def _get_timestamp(path: Path) -> datetime:
-    """Get file timestamp: birth time if available, else modify time."""
+    """Get file birth time; fallback to mtime if birth not available."""
     st = path.stat()
     birth = getattr(st, "st_birthtime", None)
     if birth and birth > 0:
+        return datetime.fromtimestamp(birth)
+    birth = _get_birth_time_linux(path)
+    if birth is not None:
         return datetime.fromtimestamp(birth)
     return datetime.fromtimestamp(st.st_mtime)
 
 
 def rename_segment(path: Path) -> bool:
     """
-    Rename a single video_*.mp4 file to DDMMYYYY_HHMMSS.mp4.
+    Rename a single video_*.mp4 file to DDMMYYYY_HHMMSS.mp4 using birth time.
     Returns True if renamed, False if skipped (file does not exist or wrong pattern).
     """
     path = Path(path)

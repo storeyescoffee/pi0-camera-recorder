@@ -9,6 +9,9 @@ BASE_URL = "https://panel.storeyes.io/api/device-gw"
 SETTINGS_URL = f"{BASE_URL}/settings?include=side_camera,business_hour"
 SIDE_VIDEOS_URL = f"{BASE_URL}/side-videos"
 
+CACHE_DIR = Path(__file__).resolve().parent / "caches"
+SETTINGS_CACHE_PATH = CACHE_DIR / "settings.json"
+
 
 def _get_pi_serial() -> str | None:
     """Read Raspberry Pi serial ID from /proc/cpuinfo."""
