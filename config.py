@@ -11,6 +11,7 @@ def load_config(config_path: Path | None = None) -> dict:
     path = config_path or CONFIG_PATH
     defaults = {
         "base_dir": str(Path.home() / "recordings"),
+        "flip": False,
         "segment_seconds": 300,
         "bitrate": 2_097_152,
         "fps": 25,
@@ -30,6 +31,7 @@ def load_config(config_path: Path | None = None) -> dict:
     r = cp["recorder"]
     return {
         "base_dir": Path(r.get("base_dir", defaults["base_dir"])).expanduser(),
+        "flip": r.getboolean("flip", defaults["flip"]),
         "segment_seconds": r.getint("segment_seconds", defaults["segment_seconds"]),
         "bitrate": r.getint("bitrate", defaults["bitrate"]),
         "fps": r.getint("fps", defaults["fps"]),

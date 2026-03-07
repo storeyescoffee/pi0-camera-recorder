@@ -46,6 +46,7 @@ def _segment_loop(
 
 def run_recorder(
     base_dir: Path,
+    flip: bool,
     segment_seconds: int,
     bitrate: int,
     fps: int,
@@ -55,7 +56,7 @@ def run_recorder(
     duration_seconds: int | None = None,
 ) -> None:
     """
-    Record using picamera2 with H264Encoder and FfmpegOutput.
+    Record using picamera2 with H264Encoder.
     Uses SplittableOutput for segment switching and Python timing for reliable duration.
     """
     try:
@@ -73,10 +74,12 @@ def run_recorder(
 
     picam2 = Picamera2()
     video_config = {"size": (width, height), "format": "YUV420"}
+    # Single config flag: flip=True rotates the image 180° (both axes)
+    transform = Transform(hflip=int(flip), vflip=int(flip))
     config = picam2.create_video_configuration(
         main=video_config,
         controls={"FrameRate": fps},
-        transform=Transform(hflip=1, vflip=1),
+        transform=transform,
     )
     picam2.configure(config)
 

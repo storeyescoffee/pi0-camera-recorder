@@ -1,0 +1,4 @@
+# On Raspberry Pi OS, install via apt (recommended):
+#   sudo apt install python3-picamera2 python3-av
+#
+# picamera2 depends on system libcamera; PyavOutput uses av for MP4 muxing.

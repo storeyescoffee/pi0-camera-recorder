@@ -53,6 +53,7 @@ def parse_args() -> dict:
     cfg = load_config(args.config)
     return {
         "base_dir": Path(cfg["base_dir"]).resolve(),
+        "flip": cfg["flip"],
         "segment_seconds": cfg["segment_seconds"],
         "bitrate": cfg["bitrate"],
         "fps": cfg["fps"],
@@ -110,6 +111,7 @@ def main() -> None:
 
         run_recorder(
             base_dir=base_dir,
+            flip=args["flip"],
             segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
@@ -130,6 +132,7 @@ def main() -> None:
     while True:
         run_recorder(
             base_dir=base_dir,
+            flip=args["flip"],
             segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
