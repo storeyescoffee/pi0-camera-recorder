@@ -81,7 +81,7 @@ def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> 
 
     _clear_at_queue()
 
-    script = script_path or Path(__file__).resolve().parent / "camera_recorder.py"
+    script = script_path or Path(__file__).resolve().parent / "main.py"
     cmd = f"python3 {script}"
 
     now = datetime.now()

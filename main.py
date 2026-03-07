@@ -6,6 +6,7 @@ Uses at(1) to schedule recording within business hours.
 """
 
 import argparse
+import logging
 import sys
 import time
 from datetime import datetime
@@ -20,6 +21,27 @@ from schedule import (
     schedule_at,
     seconds_until_end_time,
 )
+
+LOG_DIR = Path(__file__).resolve().parent / "logs"
+
+
+def setup_logging() -> None:
+    """Configure logging to logs/YYYY-MM-DD.log and console."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_file = LOG_DIR / f"{datetime.now():%Y-%m-%d}.log"
+    fmt = "%(asctime)s [%(levelname)s] %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format=fmt,
+        datefmt=datefmt,
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        force=True,
+    )
 
 
 def parse_args() -> dict:
@@ -47,6 +69,7 @@ def is_recording_hours() -> bool:
 
 
 def main() -> None:
+    setup_logging()
     args = parse_args()
     base_dir = args["base_dir"]
     bitrate = args["bitrate"]
@@ -78,12 +101,12 @@ def main() -> None:
         end_h, end_m = business_end
 
         if not is_within_business_hours(now, start_h, start_m, end_h, end_m):
-            print("[INFO] Outside business hours, scheduling for start-time")
+            logging.info("Outside business hours, scheduling for start-time")
             schedule_at(start_h, start_m, script_path)
             sys.exit(0)
 
         duration = seconds_until_end_time(now, end_h, end_m)
-        print(f"[INFO] Recording to {base_dir} until end-time ({duration}s remaining)")
+        logging.info("Recording to %s until end-time (%ds remaining)", base_dir, duration)
 
         run_recorder(
             base_dir=base_dir,
@@ -95,14 +118,14 @@ def main() -> None:
             gop=args["gop"],
             duration_seconds=duration,
         )
-        print("[INFO] Recording session ended, scheduling next run")
+        logging.info("Recording session ended, scheduling next run")
         schedule_at(start_h, start_m, script_path)
         sys.exit(0)
 
     if not args["ignore_hours"] and not is_recording_hours():
         sys.exit(0)
 
-    print(f"[INFO] Recording to {base_dir}")
+    logging.info("Recording to %s", base_dir)
 
     while True:
         run_recorder(
@@ -114,7 +137,7 @@ def main() -> None:
             height=args["height"],
             gop=args["gop"],
         )
-        print("[WARN] Capture stopped, restarting in 2 seconds...")
+        logging.warning("Capture stopped, restarting in 2 seconds...")
         time.sleep(2)
 
 
