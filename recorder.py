@@ -1,38 +1,47 @@
-"""rpicam-vid + ffmpeg recording pipeline."""
+"""Picamera2-based recording with Python-controlled duration and segmented output."""
 
-import subprocess
 import threading
 import time
 from pathlib import Path
 
+from rename import rename_segment
 
-def _watch_segment_list(
-    segment_list_path: Path, base_dir: Path, ffmpeg_proc: subprocess.Popen, rename_fn
+
+def _segment_loop(
+    splitter,
+    base_dir: Path,
+    segment_seconds: int,
+    duration_seconds: int | None,
+    stop_event: threading.Event,
+    done_event: threading.Event,
 ) -> None:
-    """Watch segment list and rename each completed segment immediately."""
-    seen: set[str] = set()
-    while ffmpeg_proc.poll() is None:
-        seen = _process_segment_list(segment_list_path, base_dir, seen, rename_fn)
-        time.sleep(0.5)
-    _process_segment_list(segment_list_path, base_dir, seen, rename_fn)
+    """Run segment splitting in a loop until duration or stop."""
+    segment_index = 0
+    start_time = time.monotonic()
 
+    while not stop_event.is_set():
+        remaining = duration_seconds - int(time.monotonic() - start_time) if duration_seconds else None
+        if remaining is not None and remaining <= 0:
+            break
+        sleep_for = segment_seconds
+        if remaining is not None and remaining < segment_seconds:
+            sleep_for = remaining
+        if stop_event.wait(timeout=sleep_for):
+            break
+        if duration_seconds and (time.monotonic() - start_time) >= duration_seconds:
+            break
+        prev_path = base_dir / f"video_{segment_index:06d}.mp4"
+        segment_index += 1
+        new_path = base_dir / f"video_{segment_index:06d}.mp4"
+        try:
+            from picamera2.outputs import FfmpegOutput
 
-def _process_segment_list(
-    path: Path, base_dir: Path, seen: set[str], rename_fn
-) -> set[str]:
-    """Process segment list and rename any new completed segments. Returns updated seen set."""
-    try:
-        if path.exists():
-            for line in path.read_text().strip().splitlines():
-                name = line.strip()
-                if name and name not in seen:
-                    seen = seen | {name}
-                    filepath = base_dir / name
-                    if filepath.exists():
-                        rename_fn(filepath)
-    except Exception:
-        pass
-    return seen
+            splitter.split_output(FfmpegOutput(str(new_path)))
+            if prev_path.exists():
+                rename_segment(prev_path)
+        except Exception:
+            break
+    done_event.set()
 
 
 def run_recorder(
@@ -45,60 +54,68 @@ def run_recorder(
     gop: int,
     duration_seconds: int | None = None,
 ) -> None:
-    """Run rpicam-vid piping to ffmpeg for segmented output. Renames each segment as soon as it's complete."""
+    """
+    Record using picamera2 with H264Encoder and FfmpegOutput.
+    Uses SplittableOutput for segment switching and Python timing for reliable duration.
+    """
+    try:
+        from libcamera import Transform
+        from picamera2 import Picamera2
+        from picamera2.encoders import H264Encoder
+        from picamera2.outputs import FfmpegOutput, SplittableOutput
+    except ImportError as e:
+        raise ImportError(
+            "picamera2 is required. Install with: sudo apt install python3-picamera2"
+        ) from e
+
     base_dir.mkdir(parents=True, exist_ok=True)
-    output_pattern = str(base_dir / "video_%06d.mp4")
-    segment_list_path = base_dir / ".segment_list.txt"
+    first_segment = base_dir / "video_000000.mp4"
 
-    rpicam_args = [
-        "rpicam-vid",
-        "--nopreview",
-        "--codec", "h264",
-        "--inline",
-        "--rotation", "180",
-        "-g", str(gop),
-        "--bitrate", str(bitrate),
-        "--framerate", str(fps),
-        "--width", str(width),
-        "--height", str(height),
-        "--mode", "2304:1296",
-        "-t", str(duration_seconds) if duration_seconds else "0",
-        "-o", "-",
-    ]
-
-    rpicam = subprocess.Popen(
-        rpicam_args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    video_config = {"size": (width, height), "format": "YUV420"}
+    config = Picamera2().create_video_configuration(
+        main=video_config,
+        controls={"FrameRate": fps},
+        transform=Transform(hflip=1, vflip=1),
     )
 
-    ffmpeg = subprocess.Popen(
-        [
-            "ffmpeg",
-            "-hide_banner", "-loglevel", "error",
-            "-f", "h264", "-i", "-",
-            "-c", "copy",
-            "-f", "segment",
-            "-segment_time", str(segment_seconds),
-            "-reset_timestamps", "1",
-            "-movflags", "+faststart",
-            "-segment_list", str(segment_list_path),
-            "-segment_list_type", "flat",
-            output_pattern,
-        ],
-        stdin=rpicam.stdout,
-        stderr=subprocess.PIPE,
-    )
+    picam2 = Picamera2()
+    picam2.configure(config)
 
-    rpicam.stdout.close()
+    encoder = H264Encoder(bitrate=bitrate)
+    # Request keyframes every gop frames for clean segment boundaries
+    encoder.iperiod = gop
 
-    from rename import rename_segment
-    watcher = threading.Thread(
-        target=_watch_segment_list,
-        args=(segment_list_path, base_dir, ffmpeg, rename_segment),
+    output = SplittableOutput(output=FfmpegOutput(str(first_segment)))
+    picam2.start_recording(encoder, output)
+
+    stop_event = threading.Event()
+    done_event = threading.Event()
+    segment_thread = threading.Thread(
+        target=_segment_loop,
+        args=(
+            output,
+            base_dir,
+            segment_seconds,
+            duration_seconds,
+            stop_event,
+            done_event,
+        ),
         daemon=True,
     )
-    watcher.start()
-    rpicam.wait()
-    ffmpeg.stdin.close()
-    ffmpeg.wait()
+    segment_thread.start()
+
+    try:
+        if duration_seconds:
+            time.sleep(duration_seconds)
+        else:
+            while True:
+                time.sleep(60)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_event.set()
+        done_event.wait(timeout=segment_seconds + 10)
+        picam2.stop_recording()
+        # Rename any remaining video_*.mp4 (the final segment we were writing to)
+        for path in sorted(base_dir.glob("video_*.mp4")):
+            rename_segment(path)
