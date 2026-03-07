@@ -34,9 +34,9 @@ def _segment_loop(
         segment_index += 1
         new_path = base_dir / f"video_{segment_index:06d}.mp4"
         try:
-            from picamera2.outputs import FfmpegOutput
+            from picamera2.outputs import PyavOutput
 
-            splitter.split_output(FfmpegOutput(str(new_path)))
+            splitter.split_output(PyavOutput(str(new_path)))
             if prev_path.exists():
                 rename_segment(prev_path)
         except Exception:
@@ -62,7 +62,7 @@ def run_recorder(
         from libcamera import Transform
         from picamera2 import Picamera2
         from picamera2.encoders import H264Encoder
-        from picamera2.outputs import FfmpegOutput, SplittableOutput
+        from picamera2.outputs import PyavOutput, SplittableOutput
     except ImportError as e:
         raise ImportError(
             "picamera2 is required. Install with: sudo apt install python3-picamera2"
@@ -84,7 +84,7 @@ def run_recorder(
     # Request keyframes every gop frames for clean segment boundaries
     encoder.iperiod = gop
 
-    output = SplittableOutput(output=FfmpegOutput(str(first_segment)))
+    output = SplittableOutput(output=PyavOutput(str(first_segment)))
     picam2.start_recording(encoder, output)
 
     stop_event = threading.Event()
