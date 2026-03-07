@@ -26,16 +26,27 @@ def _get_pi_serial() -> str | None:
 
 
 def fetch_remote_settings() -> dict | None:
-    """Fetch settings from API. Returns None on failure."""
+    """
+    Fetch settings from API. On success, save to caches/settings.json.
+    Always try API first; on failure, use cache as fallback.
+    """
     try:
         headers = {}
         if serial := _get_pi_serial():
             headers["X-DEVICE-ID"] = serial
         req = urllib.request.Request(SETTINGS_URL, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.load(resp)
+            data = json.load(resp)
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            SETTINGS_CACHE_PATH.write_text(json.dumps(data, indent=2))
+            return data
     except Exception as e:
         print(f"[WARN] Could not fetch remote settings: {e}", file=sys.stderr)
+        try:
+            if SETTINGS_CACHE_PATH.exists():
+                return json.loads(SETTINGS_CACHE_PATH.read_text())
+        except Exception as cache_err:
+            print(f"[WARN] Could not load settings cache: {cache_err}", file=sys.stderr)
         return None
 
 
