@@ -7,6 +7,7 @@ Uses at(1) to schedule recording within business hours.
 
 import argparse
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -44,10 +45,23 @@ def setup_logging() -> None:
     )
 
 
+def write_pid_file(pid_path: Path) -> None:
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid = os.getpid()
+    pid_path.write_text(f"{pid}\n", encoding="utf-8")
+    logging.info("Wrote pid file: %s (pid=%d)", pid_path, pid)
+
+
 def parse_args() -> dict:
     parser = argparse.ArgumentParser(description="Record Pi camera video in 5-minute segments")
     parser.add_argument("--config", type=Path, default=CONFIG_PATH, help="Path to config file")
     parser.add_argument("--ignore-hours", action="store_true", help="Record at any hour")
+    parser.add_argument(
+        "--pid-file",
+        type=Path,
+        default=None,
+        help="Path to write .pid file (default: <base_dir>/recorder.pid)",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -61,6 +75,7 @@ def parse_args() -> dict:
         "height": cfg["height"],
         "gop": cfg["gop"],
         "ignore_hours": args.ignore_hours or cfg["ignore_hours"],
+        "pid_file": args.pid_file,
     }
 
 
@@ -73,10 +88,13 @@ def main() -> None:
     setup_logging()
     args = parse_args()
     base_dir = args["base_dir"]
+    pid_path = Path(args["pid_file"]).expanduser().resolve() if args["pid_file"] else (base_dir / "recorder.pid")
     bitrate = args["bitrate"]
     segment_seconds = args["segment_seconds"]
     business_start: tuple[int, int] | None = None
     business_end: tuple[int, int] | None = None
+
+    write_pid_file(pid_path)
 
     remote = fetch_remote_settings()
     if remote:
