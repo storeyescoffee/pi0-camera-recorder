@@ -1,5 +1,10 @@
-"""Picamera2-based recording with Python-controlled duration and segmented output."""
+"""Picamera2-based recording with Python-controlled duration and segmented output.
 
+Focus: produce constant-frame-rate (CFR) H.264 MP4 by hard-locking capture pacing
+via FrameDurationLimits (microseconds per frame).
+"""
+
+import logging
 import threading
 import time
 from pathlib import Path
@@ -69,6 +74,17 @@ def run_recorder(
             "picamera2 is required. Install with: sudo apt install python3-picamera2"
         ) from e
 
+    # Enforce a fixed bitrate in a compatibility-friendly range.
+    # (Keeps quality reasonable while avoiding huge peaks on small hardware.)
+    target_min = 2_000_000
+    target_max = 2_500_000
+    if bitrate < target_min:
+        logging.warning("Bitrate %d too low; raising to %d bps", bitrate, target_min)
+        bitrate = target_min
+    elif bitrate > target_max:
+        logging.warning("Bitrate %d too high; lowering to %d bps", bitrate, target_max)
+        bitrate = target_max
+
     base_dir.mkdir(parents=True, exist_ok=True)
     first_segment = base_dir / "video_000000.mp4"
 
@@ -76,9 +92,16 @@ def run_recorder(
     video_config = {"size": (width, height), "format": "YUV420"}
     # Single config flag: flip=True rotates the image 180° (both axes)
     transform = Transform(hflip=int(flip), vflip=int(flip))
+    # Hard lock frame pacing for CFR: 25 FPS => 40,000 µs per frame.
+    # Do not rely only on FrameRate; FrameDurationLimits enforces timing stability.
+    frame_us = int(round(1_000_000 / max(1, int(fps))))
     config = picam2.create_video_configuration(
         main=video_config,
-        controls={"FrameRate": fps},
+        controls={
+            "FrameDurationLimits": (frame_us, frame_us),
+            # Keep FrameRate for completeness/compat, but pacing is enforced above.
+            "FrameRate": fps,
+        },
         transform=transform,
     )
     picam2.configure(config)
@@ -86,6 +109,17 @@ def run_recorder(
     encoder = H264Encoder(bitrate=bitrate)
     # Request keyframes every gop frames for clean segment boundaries
     encoder.iperiod = gop
+
+    logging.info(
+        "Recorder settings: %dx%d @ %d fps (FrameDurationLimits=%dus), bitrate=%d bps, gop=%d, flip=%s",
+        width,
+        height,
+        fps,
+        frame_us,
+        bitrate,
+        gop,
+        flip,
+    )
 
     output = SplittableOutput(output=PyavOutput(str(first_segment)))
     picam2.start_recording(encoder, output)
