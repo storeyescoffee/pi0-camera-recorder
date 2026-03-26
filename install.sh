@@ -60,3 +60,5 @@ crontab -u "${TARGET_USER}" "${TMP}"
 
 echo "[INFO] Done. Crontab for ${TARGET_USER} now includes:"
 echo "       ${CRON_CMD}"
+
+chmod +x start.sh stop.sh
