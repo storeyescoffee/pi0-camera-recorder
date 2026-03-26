@@ -60,7 +60,7 @@ def parse_args() -> dict:
         "--pid-file",
         type=Path,
         default=None,
-        help="Path to write .pid file (default: <base_dir>/recorder.pid)",
+        help="Path to write pid file (default: <project_dir>/.pid)",
     )
     args = parser.parse_args()
 
@@ -103,7 +103,11 @@ def main() -> None:
     setup_logging()
     args = parse_args()
     base_dir = args["base_dir"]
-    pid_path = Path(args["pid_file"]).expanduser().resolve() if args["pid_file"] else (base_dir / "recorder.pid")
+    pid_path = (
+        Path(args["pid_file"]).expanduser().resolve()
+        if args["pid_file"]
+        else (Path(__file__).resolve().parent / ".pid")
+    )
     flip = args["flip"]
     bitrate = args["bitrate"]
     segment_seconds = args["segment_seconds"]
