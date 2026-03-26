@@ -84,11 +84,27 @@ def is_recording_hours() -> bool:
     return 7 <= datetime.now().hour < 22
 
 
+def parse_bool(v: object) -> bool | None:
+    """Parse booleans that may arrive as bool/int/str; return None if unknown."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in {"true", "1", "yes", "y", "on"}:
+            return True
+        if s in {"false", "0", "no", "n", "off"}:
+            return False
+    return None
+
+
 def main() -> None:
     setup_logging()
     args = parse_args()
     base_dir = args["base_dir"]
     pid_path = Path(args["pid_file"]).expanduser().resolve() if args["pid_file"] else (base_dir / "recorder.pid")
+    flip = args["flip"]
     bitrate = args["bitrate"]
     segment_seconds = args["segment_seconds"]
     business_start: tuple[int, int] | None = None
@@ -104,6 +120,9 @@ def main() -> None:
                 bitrate = int(sc["bitrate"])
             if "chunk-duration" in sc:
                 segment_seconds = int(sc["chunk-duration"]) * 60
+            if "flip" in sc:
+                if (parsed := parse_bool(sc["flip"])) is not None:
+                    flip = parsed
         if "BUSINESS_HOUR" in remote:
             bh = remote["BUSINESS_HOUR"]
             business_start = parse_time(bh.get("start-time", "07:00"))
@@ -129,7 +148,7 @@ def main() -> None:
 
         run_recorder(
             base_dir=base_dir,
-            flip=args["flip"],
+            flip=flip,
             segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
@@ -150,7 +169,7 @@ def main() -> None:
     while True:
         run_recorder(
             base_dir=base_dir,
-            flip=args["flip"],
+            flip=flip,
             segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
