@@ -33,8 +33,6 @@ echo "[INFO] Enabling services..."
 systemctl enable --now cron >/dev/null 2>&1 || true
 systemctl enable --now atd >/dev/null 2>&1 || true
 
-echo "[INFO] Ensuring logs directory exists..."
-mkdir -p "${REPO_DIR}/logs"
 
 echo "[INFO] Installing @reboot crontab entry (idempotent)..."
 
