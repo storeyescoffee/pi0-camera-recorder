@@ -1,16 +1,22 @@
 """Remote settings API."""
 
+import csv
 import json
 import sys
+import threading
 import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://panel.storeyes.io/api/device-gw"
 SETTINGS_URL = f"{BASE_URL}/settings?include=side_camera,business_hour"
 SIDE_VIDEOS_URL = f"{BASE_URL}/side-videos"
+BULK_SIDE_VIDEOS_URL = f"{BASE_URL}/side-videos/bulk"
 
 CACHE_DIR = Path(__file__).resolve().parent / "caches"
 SETTINGS_CACHE_PATH = CACHE_DIR / "settings.json"
+SIDE_VIDEOS_QUEUE_PATH = CACHE_DIR / "side_videos_queue.csv"
+
+_csv_lock = threading.Lock()
 
 
 def _get_pi_serial() -> str | None:
@@ -55,6 +61,69 @@ def _request_headers() -> dict:
     if serial := _get_pi_serial():
         headers["X-DEVICE-ID"] = serial
     return headers
+
+
+def append_side_video_to_csv(date: str, hour: int, name: str) -> None:
+    """Append a side video entry to the local CSV queue."""
+    with _csv_lock:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(SIDE_VIDEOS_QUEUE_PATH, "a", newline="") as f:
+            csv.writer(f).writerow([date, hour, name[:255]])
+
+
+def _read_csv_rows() -> list[dict]:
+    """Read all rows from the CSV queue. Caller must hold _csv_lock."""
+    if not SIDE_VIDEOS_QUEUE_PATH.exists():
+        return []
+    rows = []
+    with open(SIDE_VIDEOS_QUEUE_PATH, newline="") as f:
+        for r in csv.reader(f):
+            if len(r) == 3:
+                try:
+                    rows.append({"date": r[0], "hour": int(r[1]), "name": r[2]})
+                except ValueError:
+                    pass
+    return rows
+
+
+def post_side_videos_bulk() -> bool:
+    """
+    Read the CSV queue and POST all entries as a bulk request.
+    On success, removes sent entries from the CSV. Returns True on success.
+    """
+    with _csv_lock:
+        rows = _read_csv_rows()
+
+    if not rows:
+        return True
+
+    if not _get_pi_serial():
+        print("[WARN] Cannot POST side-videos bulk: no device ID", file=sys.stderr)
+        return False
+
+    body = json.dumps({"items": rows})
+    try:
+        req = urllib.request.Request(
+            BULK_SIDE_VIDEOS_URL,
+            data=body.encode(),
+            headers=_request_headers(),
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status in (200, 201):
+                sent_keys = {(r["date"], r["hour"], r["name"]) for r in rows}
+                with _csv_lock:
+                    current = _read_csv_rows()
+                    remaining = [r for r in current if (r["date"], r["hour"], r["name"]) not in sent_keys]
+                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    with open(SIDE_VIDEOS_QUEUE_PATH, "w", newline="") as f:
+                        writer = csv.writer(f)
+                        for r in remaining:
+                            writer.writerow([r["date"], r["hour"], r["name"]])
+                return True
+    except Exception as e:
+        print(f"[WARN] Could not POST side-videos bulk: {e}", file=sys.stderr)
+    return False
 
 
 def post_side_video(date: str, hour: int, name: str) -> dict | None:

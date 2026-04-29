@@ -9,11 +9,12 @@ import argparse
 import logging
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
-from api import fetch_remote_settings
+from api import fetch_remote_settings, post_side_videos_bulk
 from config import CONFIG_PATH, load_config
 from recorder import run_recorder
 from schedule import (
@@ -99,6 +100,22 @@ def parse_bool(v: object) -> bool | None:
     return None
 
 
+def _bulk_sender_loop() -> None:
+    """Background thread: send bulk at HH:05 every hour, retry every 2 min on failure."""
+    while True:
+        now = datetime.now()
+        if now.minute < 5:
+            wait = (5 - now.minute) * 60 - now.second
+        else:
+            wait = (60 - now.minute + 5) * 60 - now.second
+        time.sleep(wait)
+
+        while not post_side_videos_bulk():
+            logging.warning("Bulk side-video send failed, retrying in 2 minutes")
+            time.sleep(120)
+        logging.info("Bulk side-video send succeeded")
+
+
 def main() -> None:
     setup_logging()
     args = parse_args()
@@ -115,6 +132,8 @@ def main() -> None:
     business_end: tuple[int, int] | None = None
 
     write_pid_file(pid_path)
+
+    threading.Thread(target=_bulk_sender_loop, daemon=True, name="bulk-sender").start()
 
     remote = fetch_remote_settings()
     if remote:

@@ -74,7 +74,7 @@ def rename_segment(path: Path) -> bool:
     stem = new_name.stem
     if parsed := _parse_renamed_stem(stem):
         date_iso, hour = parsed
-        from api import post_side_video
-        post_side_video(date=date_iso, hour=hour, name=stem)
+        from api import append_side_video_to_csv
+        append_side_video_to_csv(date=date_iso, hour=hour, name=stem)
 
     return True
