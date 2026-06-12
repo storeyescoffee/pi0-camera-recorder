@@ -3,14 +3,15 @@ set -euo pipefail
 
 # Installs system dependencies and configures a @reboot cron job.
 # Run on Raspberry Pi OS / Debian-based systems:
-#   chmod +x install.sh && ./install.sh
+#   chmod +x scripts/install.sh && sudo ./scripts/install.sh
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "[ERROR] Please run as root (use sudo): sudo ./install.sh" >&2
+  echo "[ERROR] Please run as root (use sudo): sudo ./scripts/install.sh" >&2
   exit 1
 fi
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "[INFO] Repo dir: ${REPO_DIR}"
 
@@ -59,4 +60,4 @@ crontab -u "${TARGET_USER}" "${TMP}"
 echo "[INFO] Done. Crontab for ${TARGET_USER} now includes:"
 echo "       ${CRON_CMD}"
 
-chmod +x start.sh stop.sh
+chmod +x "$SCRIPT_DIR/start.sh" "$SCRIPT_DIR/stop.sh"

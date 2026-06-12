@@ -7,9 +7,62 @@ via FrameDurationLimits (microseconds per frame).
 import logging
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
-from rename import rename_segment
+from .rename import rename_segment
+
+_OVERLAY_W = 380
+_OVERLAY_H = 42
+_OVERLAY_X = 10
+_OVERLAY_Y = 10
+
+
+def _make_timestamp_callback():
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+    except ImportError:
+        logging.warning("Pillow not installed; datetime overlay disabled. Run: pip install Pillow")
+        return None
+
+    font = None
+    for fp in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]:
+        try:
+            font = ImageFont.truetype(fp, size=24)
+            break
+        except (IOError, OSError):
+            pass
+
+    _cache: dict = {"text": "", "bright": None, "shadow": None}
+
+    def _render(text: str) -> None:
+        bright_img = Image.new("L", (_OVERLAY_W, _OVERLAY_H), 0)
+        shadow_img = Image.new("L", (_OVERLAY_W, _OVERLAY_H), 0)
+        ImageDraw.Draw(bright_img).text((0, 0), text, fill=255, font=font)
+        ImageDraw.Draw(shadow_img).text((2, 2), text, fill=255, font=font)
+        _cache["bright"] = np.array(bright_img) > 128
+        _cache["shadow"] = np.array(shadow_img) > 128
+        _cache["text"] = text
+
+    def callback(request) -> None:
+        from picamera2 import MappedArray
+
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        if now != _cache["text"]:
+            _render(now)
+        bright, shadow = _cache["bright"], _cache["shadow"]
+        if bright is None:
+            return
+        with MappedArray(request, "main") as m:
+            roi = m.array[_OVERLAY_Y : _OVERLAY_Y + _OVERLAY_H, _OVERLAY_X : _OVERLAY_X + _OVERLAY_W]
+            roi[shadow] = 16   # dark shadow offset by 2px
+            roi[bright] = 235  # white text
+
+    return callback
 
 
 def _segment_loop(
@@ -105,6 +158,10 @@ def run_recorder(
         transform=transform,
     )
     picam2.configure(config)
+
+    timestamp_cb = _make_timestamp_callback()
+    if timestamp_cb:
+        picam2.pre_callback = timestamp_cb
 
     encoder = H264Encoder(bitrate=bitrate)
     # Request keyframes every gop frames for clean segment boundaries

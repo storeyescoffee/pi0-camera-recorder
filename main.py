@@ -14,10 +14,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from api import fetch_remote_settings, post_side_videos_bulk
-from config import CONFIG_PATH, load_config
-from recorder import run_recorder
-from schedule import (
+from src.api import fetch_remote_settings, post_side_videos_bulk
+from config.config import CONFIG_PATH, load_config
+from src.recorder import run_recorder
+from src.schedule import (
     is_within_business_hours,
     parse_time,
     schedule_at,
@@ -180,8 +180,7 @@ def main() -> None:
             gop=args["gop"],
             duration_seconds=duration,
         )
-        logging.info("Recording session ended, scheduling next run")
-        schedule_at(start_h, start_m, script_path)
+        logging.info("Recording session ended")
         sys.exit(0)
 
     if not args["ignore_hours"] and not is_recording_hours():
