@@ -14,8 +14,7 @@ from .rename import rename_segment
 
 _OVERLAY_W = 380
 _OVERLAY_H = 42
-_OVERLAY_X = 10
-_OVERLAY_Y = 10
+_OVERLAY_PAD = 20
 
 
 def _make_timestamp_callback():
@@ -58,9 +57,12 @@ def _make_timestamp_callback():
         if bright is None:
             return
         with MappedArray(request, "main") as m:
-            roi = m.array[_OVERLAY_Y : _OVERLAY_Y + _OVERLAY_H, _OVERLAY_X : _OVERLAY_X + _OVERLAY_W]
-            roi[shadow] = 16   # dark shadow offset by 2px
-            roi[bright] = 235  # white text
+            frame_w = m.array.shape[1]
+            x = frame_w - _OVERLAY_W - _OVERLAY_PAD
+            y = _OVERLAY_PAD
+            roi = m.array[y : y + _OVERLAY_H, x : x + _OVERLAY_W]
+            roi[shadow] = 16
+            roi[bright] = 235
 
     return callback
 
