@@ -48,16 +48,18 @@ def _get_timestamp(path: Path) -> datetime:
     return datetime.fromtimestamp(st.st_mtime)
 
 
-def rename_segment(path: Path) -> bool:
+def rename_segment(path: Path, timestamp: datetime | None = None) -> bool:
     """
-    Rename a single video_*.mp4 file to DDMMYYYY_HHMMSS.mp4 using birth time.
+    Rename a single video_*.mp4 file to DDMMYYYY_HHMMSS.mp4.
+    Uses the given timestamp (time of the segment's first frame) if provided,
+    otherwise falls back to file birth time.
     Returns True if renamed, False if skipped (file does not exist or wrong pattern).
     """
     path = Path(path)
     if not path.exists() or not path.name.startswith("video_"):
         return False
 
-    ts = _get_timestamp(path)
+    ts = timestamp or _get_timestamp(path)
     base_dir = path.parent
     new_name = base_dir / f"{ts:%d%m%Y_%H%M%S}.mp4"
 

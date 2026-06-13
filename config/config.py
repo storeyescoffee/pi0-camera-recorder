@@ -17,7 +17,7 @@ def load_config(config_path: Path | None = None) -> dict:
         "fps": 25,
         "width": 1280,
         "height": 720,
-        "gop": 125,
+        "gop": 25,
         "ignore_hours": False,
     }
     if not path.exists():

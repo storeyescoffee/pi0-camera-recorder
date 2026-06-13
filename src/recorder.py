@@ -74,31 +74,44 @@ def _segment_loop(
     duration_seconds: int | None,
     stop_event: threading.Event,
     done_event: threading.Event,
+    state: dict,
 ) -> None:
     """Run segment splitting in a loop until duration or stop."""
     segment_index = 0
+    slot = 0
     start_time = time.monotonic()
 
     while not stop_event.is_set():
-        remaining = duration_seconds - int(time.monotonic() - start_time) if duration_seconds else None
-        if remaining is not None and remaining <= 0:
+        elapsed = time.monotonic() - start_time
+        if duration_seconds and elapsed >= duration_seconds:
             break
-        sleep_for = segment_seconds
-        if remaining is not None and remaining < segment_seconds:
-            sleep_for = remaining
+        # Split on an absolute grid (start + N*segment_seconds) so per-split
+        # overhead (keyframe wait, rename) does not accumulate across the day.
+        # If a split overran one or more slots, skip to the next future slot.
+        slot += 1
+        while slot * segment_seconds <= elapsed:
+            slot += 1
+        sleep_for = slot * segment_seconds - elapsed
+        if duration_seconds:
+            sleep_for = min(sleep_for, duration_seconds - elapsed)
         if stop_event.wait(timeout=sleep_for):
             break
         if duration_seconds and (time.monotonic() - start_time) >= duration_seconds:
             break
         prev_path = base_dir / f"video_{segment_index:06d}.mp4"
+        prev_start = state["segment_start"]
         segment_index += 1
         new_path = base_dir / f"video_{segment_index:06d}.mp4"
         try:
             from picamera2.outputs import PyavOutput
 
+            # split_output returns at the keyframe that begins the new file,
+            # so "now" is the wall-clock time of the new segment's first frame.
             splitter.split_output(PyavOutput(str(new_path)))
+            state["segment_start"] = datetime.now()
+            state["current_path"] = new_path
             if prev_path.exists():
-                rename_segment(prev_path)
+                rename_segment(prev_path, timestamp=prev_start)
         except Exception:
             break
     done_event.set()
@@ -182,6 +195,7 @@ def run_recorder(
 
     output = SplittableOutput(output=PyavOutput(str(first_segment)))
     picam2.start_recording(encoder, output)
+    state = {"segment_start": datetime.now(), "current_path": first_segment}
 
     stop_event = threading.Event()
     done_event = threading.Event()
@@ -194,6 +208,7 @@ def run_recorder(
             duration_seconds,
             stop_event,
             done_event,
+            state,
         ),
         daemon=True,
     )
@@ -211,6 +226,9 @@ def run_recorder(
         stop_event.set()
         done_event.wait(timeout=segment_seconds + 10)
         picam2.stop_recording()
-        # Rename any remaining video_*.mp4 (the final segment we were writing to)
+        # Rename any remaining video_*.mp4 (the final segment we were writing to).
+        # Only the segment we were actively writing has a known start time; any
+        # stale files from a previous crash fall back to birth time.
         for path in sorted(base_dir.glob("video_*.mp4")):
-            rename_segment(path)
+            ts = state["segment_start"] if path == state["current_path"] else None
+            rename_segment(path, timestamp=ts)
