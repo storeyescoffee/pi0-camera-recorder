@@ -12,12 +12,11 @@ def load_config(config_path: Path | None = None) -> dict:
     defaults = {
         "base_dir": str(Path.home() / "recordings"),
         "flip": False,
-        "segment_seconds": 300,
         "bitrate": 2_097_152,
         "fps": 25,
         "width": 1280,
         "height": 720,
-        "gop": 25,
+        "gop": 50,
         "ignore_hours": False,
     }
     if not path.exists():
@@ -32,7 +31,6 @@ def load_config(config_path: Path | None = None) -> dict:
     return {
         "base_dir": Path(r.get("base_dir", defaults["base_dir"])).expanduser(),
         "flip": r.getboolean("flip", defaults["flip"]),
-        "segment_seconds": r.getint("segment_seconds", defaults["segment_seconds"]),
         "bitrate": r.getint("bitrate", defaults["bitrate"]),
         "fps": r.getint("fps", defaults["fps"]),
         "width": r.getint("width", defaults["width"]),

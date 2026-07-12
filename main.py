@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pi camera recorder: captures video via rpicam-vid and segments into MP4 files.
+Pi camera recorder: captures one continuous MP4 per session via picamera2.
 Fetches settings from remote API (SIDE_CAMERA, BUSINESS_HOUR).
 Uses at(1) to schedule recording within business hours.
 """
@@ -54,7 +54,7 @@ def write_pid_file(pid_path: Path) -> None:
 
 
 def parse_args() -> dict:
-    parser = argparse.ArgumentParser(description="Record Pi camera video in 5-minute segments")
+    parser = argparse.ArgumentParser(description="Record continuous Pi camera video to MP4")
     parser.add_argument("--config", type=Path, default=CONFIG_PATH, help="Path to config file")
     parser.add_argument("--ignore-hours", action="store_true", help="Record at any hour")
     parser.add_argument(
@@ -69,7 +69,6 @@ def parse_args() -> dict:
     return {
         "base_dir": Path(cfg["base_dir"]).resolve(),
         "flip": cfg["flip"],
-        "segment_seconds": cfg["segment_seconds"],
         "bitrate": cfg["bitrate"],
         "fps": cfg["fps"],
         "width": cfg["width"],
@@ -127,7 +126,6 @@ def main() -> None:
     )
     flip = args["flip"]
     bitrate = args["bitrate"]
-    segment_seconds = args["segment_seconds"]
     business_start: tuple[int, int] | None = None
     business_end: tuple[int, int] | None = None
 
@@ -141,8 +139,6 @@ def main() -> None:
             sc = remote["SIDE_CAMERA"]
             if "bitrate" in sc:
                 bitrate = int(sc["bitrate"])
-            if "chunk-duration" in sc:
-                segment_seconds = int(sc["chunk-duration"]) * 60
             if "flip" in sc:
                 if (parsed := parse_bool(sc["flip"])) is not None:
                     flip = parsed
@@ -172,7 +168,6 @@ def main() -> None:
         run_recorder(
             base_dir=base_dir,
             flip=flip,
-            segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
             width=args["width"],
@@ -192,7 +187,6 @@ def main() -> None:
         run_recorder(
             base_dir=base_dir,
             flip=flip,
-            segment_seconds=segment_seconds,
             bitrate=bitrate,
             fps=args["fps"],
             width=args["width"],

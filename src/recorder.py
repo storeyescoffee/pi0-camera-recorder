@@ -1,20 +1,32 @@
-"""Picamera2-based recording with Python-controlled duration and segmented output.
+"""Picamera2-based recording: one continuous MP4 per session.
 
 Focus: produce constant-frame-rate (CFR) H.264 MP4 by hard-locking capture pacing
 via FrameDurationLimits (microseconds per frame).
 """
 
 import logging
-import threading
+import secrets
 import time
 from datetime import datetime
 from pathlib import Path
 
-from .rename import rename_segment
+from .api import append_side_video_to_csv
 
 _OVERLAY_W = 380
 _OVERLAY_H = 42
 _OVERLAY_PAD = 20
+
+_NAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def new_video_path(base_dir: Path, timestamp: datetime | None = None) -> Path:
+    """Build a unique YYYYMMDD_<8 random a-z0-9>.mp4 path under base_dir."""
+    ts = timestamp or datetime.now()
+    while True:
+        suffix = "".join(secrets.choice(_NAME_ALPHABET) for _ in range(8))
+        path = base_dir / f"{ts:%Y%m%d}_{suffix}.mp4"
+        if not path.exists():
+            return path
 
 
 def _make_timestamp_callback():
@@ -67,60 +79,9 @@ def _make_timestamp_callback():
     return callback
 
 
-def _segment_loop(
-    splitter,
-    base_dir: Path,
-    segment_seconds: int,
-    duration_seconds: int | None,
-    stop_event: threading.Event,
-    done_event: threading.Event,
-    state: dict,
-) -> None:
-    """Run segment splitting in a loop until duration or stop."""
-    segment_index = 0
-    slot = 0
-    start_time = time.monotonic()
-
-    while not stop_event.is_set():
-        elapsed = time.monotonic() - start_time
-        if duration_seconds and elapsed >= duration_seconds:
-            break
-        # Split on an absolute grid (start + N*segment_seconds) so per-split
-        # overhead (keyframe wait, rename) does not accumulate across the day.
-        # If a split overran one or more slots, skip to the next future slot.
-        slot += 1
-        while slot * segment_seconds <= elapsed:
-            slot += 1
-        sleep_for = slot * segment_seconds - elapsed
-        if duration_seconds:
-            sleep_for = min(sleep_for, duration_seconds - elapsed)
-        if stop_event.wait(timeout=sleep_for):
-            break
-        if duration_seconds and (time.monotonic() - start_time) >= duration_seconds:
-            break
-        prev_path = base_dir / f"video_{segment_index:06d}.mp4"
-        prev_start = state["segment_start"]
-        segment_index += 1
-        new_path = base_dir / f"video_{segment_index:06d}.mp4"
-        try:
-            from picamera2.outputs import PyavOutput
-
-            # split_output returns at the keyframe that begins the new file,
-            # so "now" is the wall-clock time of the new segment's first frame.
-            splitter.split_output(PyavOutput(str(new_path)))
-            state["segment_start"] = datetime.now()
-            state["current_path"] = new_path
-            if prev_path.exists():
-                rename_segment(prev_path, timestamp=prev_start)
-        except Exception:
-            break
-    done_event.set()
-
-
 def run_recorder(
     base_dir: Path,
     flip: bool,
-    segment_seconds: int,
     bitrate: int,
     fps: int,
     width: int,
@@ -129,14 +90,14 @@ def run_recorder(
     duration_seconds: int | None = None,
 ) -> None:
     """
-    Record using picamera2 with H264Encoder.
-    Uses SplittableOutput for segment switching and Python timing for reliable duration.
+    Record one continuous H.264 MP4 with picamera2, until duration_seconds elapses
+    (or forever if None). The file is named up front as YYYYMMDD_<8 chars>.mp4.
     """
     try:
         from libcamera import Transform
         from picamera2 import Picamera2
         from picamera2.encoders import H264Encoder
-        from picamera2.outputs import PyavOutput, SplittableOutput
+        from picamera2.outputs import PyavOutput
     except ImportError as e:
         raise ImportError(
             "picamera2 is required. Install with: sudo apt install python3-picamera2"
@@ -154,7 +115,6 @@ def run_recorder(
         bitrate = target_max
 
     base_dir.mkdir(parents=True, exist_ok=True)
-    first_segment = base_dir / "video_000000.mp4"
 
     picam2 = Picamera2()
     video_config = {"size": (width, height), "format": "YUV420"}
@@ -179,11 +139,15 @@ def run_recorder(
         picam2.pre_callback = timestamp_cb
 
     encoder = H264Encoder(bitrate=bitrate)
-    # Request keyframes every gop frames for clean segment boundaries
+    # Keyframe interval in frames; gop = 2 * fps gives a 2-second GOP at 25 fps.
     encoder.iperiod = gop
 
+    started = datetime.now()
+    video_path = new_video_path(base_dir, started)
+
     logging.info(
-        "Recorder settings: %dx%d @ %d fps (FrameDurationLimits=%dus), bitrate=%d bps, gop=%d, flip=%s",
+        "Recording %s: %dx%d @ %d fps (FrameDurationLimits=%dus), bitrate=%d bps, gop=%d, flip=%s",
+        video_path.name,
         width,
         height,
         fps,
@@ -193,26 +157,12 @@ def run_recorder(
         flip,
     )
 
-    output = SplittableOutput(output=PyavOutput(str(first_segment)))
-    picam2.start_recording(encoder, output)
-    state = {"segment_start": datetime.now(), "current_path": first_segment}
-
-    stop_event = threading.Event()
-    done_event = threading.Event()
-    segment_thread = threading.Thread(
-        target=_segment_loop,
-        args=(
-            output,
-            base_dir,
-            segment_seconds,
-            duration_seconds,
-            stop_event,
-            done_event,
-            state,
-        ),
-        daemon=True,
+    picam2.start_recording(encoder, PyavOutput(str(video_path)))
+    append_side_video_to_csv(
+        date=f"{started:%Y-%m-%d}",
+        hour=started.hour,
+        name=video_path.stem,
     )
-    segment_thread.start()
 
     try:
         if duration_seconds:
@@ -223,12 +173,5 @@ def run_recorder(
     except KeyboardInterrupt:
         pass
     finally:
-        stop_event.set()
-        done_event.wait(timeout=segment_seconds + 10)
         picam2.stop_recording()
-        # Rename any remaining video_*.mp4 (the final segment we were writing to).
-        # Only the segment we were actively writing has a known start time; any
-        # stale files from a previous crash fall back to birth time.
-        for path in sorted(base_dir.glob("video_*.mp4")):
-            ts = state["segment_start"] if path == state["current_path"] else None
-            rename_segment(path, timestamp=ts)
+        logging.info("Stopped recording %s", video_path.name)
