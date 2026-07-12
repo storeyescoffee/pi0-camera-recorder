@@ -12,9 +12,10 @@ from pathlib import Path
 
 from .api import append_side_video_to_csv
 
-_OVERLAY_W = 380
-_OVERLAY_H = 42
+_OVERLAY_W = 470
+_OVERLAY_H = 52
 _OVERLAY_PAD = 20
+_OVERLAY_FONT_SIZE = 30
 
 _NAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -43,7 +44,7 @@ def _make_timestamp_callback():
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     ]:
         try:
-            font = ImageFont.truetype(fp, size=24)
+            font = ImageFont.truetype(fp, size=_OVERLAY_FONT_SIZE)
             break
         except (IOError, OSError):
             pass
