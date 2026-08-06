@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://panel.storeyes.io/api/device-gw"
-SETTINGS_URL = f"{BASE_URL}/settings?include=side_camera,business_hour"
+SETTINGS_URL = f"{BASE_URL}/settings?include=side_camera,business_hour,aws,recording,api"
 SIDE_VIDEOS_URL = f"{BASE_URL}/side-videos"
 BULK_SIDE_VIDEOS_URL = f"{BASE_URL}/side-videos/bulk"
 
@@ -56,10 +56,12 @@ def fetch_remote_settings() -> dict | None:
         return None
 
 
-def _request_headers() -> dict:
+def _request_headers(api_key: str | None = None) -> dict:
     headers = {"Content-Type": "application/json"}
     if serial := _get_pi_serial():
         headers["X-DEVICE-ID"] = serial
+    if api_key:
+        headers["X-API-KEY"] = api_key
     return headers
 
 
@@ -126,28 +128,45 @@ def post_side_videos_bulk() -> bool:
     return False
 
 
-def post_side_video(date: str, hour: int, name: str) -> dict | None:
+def post_side_video(
+    date: str,
+    name: str,
+    upload_speed: float,
+    is_completed: bool,
+    video_url: str | None = None,
+    api_key: str | None = None,
+) -> dict | None:
     """
-    POST a side video to the API after renaming.
-    date: ISO date (e.g. 2025-03-02)
-    hour: 0-23
+    POST an upload result (completed or failed attempt) to POST /device-gw/side-videos.
+    Upserted server-side by device+name: first attempt -> 201, retries -> 200.
+    date: ISO date (e.g. 2026-08-06)
     name: max 255 chars
-    Returns response body on 201, None on failure.
+    video_url: max 1024 chars, omitted when the upload didn't produce one (e.g. failure)
+    Returns response body on 200/201, None on failure.
     """
     if not _get_pi_serial():
         print("[WARN] Cannot POST side-video: no device ID", file=sys.stderr)
         return None
 
-    body = json.dumps({"date": date, "hour": hour, "name": name[:255]})
+    payload = {
+        "date": date,
+        "name": name[:255],
+        "uploadSpeed": upload_speed,
+        "isCompleted": is_completed,
+    }
+    if video_url:
+        payload["videoUrl"] = video_url[:1024]
+
+    body = json.dumps(payload)
     try:
         req = urllib.request.Request(
             SIDE_VIDEOS_URL,
             data=body.encode(),
-            headers=_request_headers(),
+            headers=_request_headers(api_key),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 201:
+            if resp.status in (200, 201):
                 return json.load(resp)
     except Exception as e:
         print(f"[WARN] Could not POST side-video: {e}", file=sys.stderr)

@@ -3,15 +3,15 @@ set -euo pipefail
 
 # Installs system dependencies and configures a @reboot cron job.
 # Run on Raspberry Pi OS / Debian-based systems:
-#   chmod +x scripts/install.sh && sudo ./scripts/install.sh
+#   chmod +x install.sh && sudo ./install.sh
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "[ERROR] Please run as root (use sudo): sudo ./scripts/install.sh" >&2
+  echo "[ERROR] Please run as root (use sudo): sudo ./install.sh" >&2
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="$SCRIPT_DIR"
 
 echo "[INFO] Repo dir: ${REPO_DIR}"
 
@@ -21,12 +21,14 @@ apt-get update -y
 
 # - python3-picamera2: Picamera2 library + libcamera bindings
 # - python3-av: PyAV bindings used by picamera2.outputs.PyavOutput to write MP4
+# - python3-boto3: AWS SDK, used by src/uploader.py to push recordings to S3
 # - at: used by schedule.py (at/atq/atrm)
 # - cron: to run at boot
 apt-get install -y --no-install-recommends \
   python3 \
   python3-picamera2 \
   python3-av \
+  python3-boto3 \
   at \
   cron
 

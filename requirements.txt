@@ -1,4 +1,8 @@
 # On Raspberry Pi OS, install via apt (recommended):
-#   sudo apt install python3-picamera2 python3-av
+#   sudo apt install python3-picamera2 python3-av python3-boto3
 #
 # picamera2 depends on system libcamera; PyavOutput uses av for MP4 muxing.
+# boto3 is the AWS SDK used by src/uploader.py to push recordings to S3.
+#
+# For non-Pi dev/testing environments without apt access, pip works too:
+#   pip install boto3

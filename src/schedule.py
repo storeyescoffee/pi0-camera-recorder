@@ -50,8 +50,8 @@ def next_start_datetime(now: datetime, start_h: int, start_m: int) -> datetime:
     return today_start + timedelta(days=1)
 
 
-def _clear_at_queue() -> None:
-    """Remove all existing at jobs so only one scheduled run exists."""
+def _clear_at_queue(queue: str = "a") -> None:
+    """Remove existing at jobs in the given queue, leaving other queues untouched."""
     try:
         result = subprocess.run(
             ["atq"],
@@ -63,7 +63,7 @@ def _clear_at_queue() -> None:
             return
         for line in result.stdout.strip().splitlines():
             parts = line.split()
-            if parts and parts[0].isdigit():
+            if len(parts) >= 2 and parts[0].isdigit() and parts[-2] == queue:
                 subprocess.run(
                     ["atrm", parts[0]],
                     capture_output=True,
@@ -74,12 +74,12 @@ def _clear_at_queue() -> None:
 
 
 def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> None:
-    """Schedule script to run at start-time using at(1). Drops existing jobs first."""
+    """Schedule script to run at start-time using at(1), queue 'a'. Drops existing queue-'a' jobs first."""
     if shutil.which("at") is None:
         print("[ERROR] 'at' command not found. Install with: apt install at", file=sys.stderr)
         sys.exit(1)
 
-    _clear_at_queue()
+    _clear_at_queue("a")
 
     script = script_path or Path(__file__).resolve().parent / "main.py"
     cmd = f"python3 {script}"
@@ -93,7 +93,7 @@ def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> 
         at_spec = f"{start_h:02d}:{start_m:02d} tomorrow"
 
     proc = subprocess.run(
-        ["at", at_spec],
+        ["at", "-q", "a", at_spec],
         input=cmd.encode(),
         capture_output=True,
     )
@@ -101,3 +101,28 @@ def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> 
         print(f"[ERROR] Failed to schedule at {at_spec}: {proc.stderr.decode()}", file=sys.stderr)
         sys.exit(1)
     print(f"[INFO] Scheduled next run at {at_spec}")
+
+
+def schedule_upload_retry(date: str, script_path: Path | None = None, delay_minutes: int = 10) -> None:
+    """Schedule an upload retry via at(1), queue 'u'. Drops existing queue-'u' jobs first."""
+    if shutil.which("at") is None:
+        print("[ERROR] 'at' command not found. Install with: apt install at", file=sys.stderr)
+        sys.exit(1)
+
+    _clear_at_queue("u")
+
+    script = script_path or Path(__file__).resolve().parent / "main.py"
+    cmd = f"python3 {script} --upload {date}"
+
+    proc = subprocess.run(
+        ["at", "-q", "u", "now", "+", str(delay_minutes), "minutes"],
+        input=cmd.encode(),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        print(
+            f"[ERROR] Failed to schedule upload retry for {date}: {proc.stderr.decode()}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(f"[INFO] Scheduled upload retry for {date} in {delay_minutes} minutes")

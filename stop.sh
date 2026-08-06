@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_FILE="$SCRIPT_DIR/../.pid"
+PID_FILE="$SCRIPT_DIR/.pid"
 
 if [[ ! -f "$PID_FILE" ]]; then
   echo "No PID file: $PID_FILE" >&2

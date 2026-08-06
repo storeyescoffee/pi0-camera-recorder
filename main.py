@@ -11,7 +11,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.api import fetch_remote_settings, post_side_videos_bulk
@@ -21,8 +21,10 @@ from src.schedule import (
     is_within_business_hours,
     parse_time,
     schedule_at,
+    schedule_upload_retry,
     seconds_until_end_time,
 )
+from src.uploader import cleanup_old_uploads, upload_videos_for_date
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
@@ -53,6 +55,14 @@ def write_pid_file(pid_path: Path) -> None:
     logging.info("Wrote pid file: %s (pid=%d)", pid_path, pid)
 
 
+def business_date(now: datetime):
+    """Business date for 'today' with a 03:00 overnight cutoff (used only for a bare --upload)."""
+    d = now.date()
+    if now.hour < 3:
+        d -= timedelta(days=1)
+    return d
+
+
 def parse_args() -> dict:
     parser = argparse.ArgumentParser(description="Record continuous Pi camera video to MP4")
     parser.add_argument("--config", type=Path, default=CONFIG_PATH, help="Path to config file")
@@ -63,9 +73,21 @@ def parse_args() -> dict:
         default=None,
         help="Path to write pid file (default: <project_dir>/.pid)",
     )
+    parser.add_argument(
+        "--upload",
+        nargs="?",
+        const="__today__",
+        default=None,
+        metavar="YYYYMMDD",
+        help="Upload videos for date and exit (no recording). Omit value for today's business date.",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    upload_date = args.upload
+    if upload_date == "__today__":
+        upload_date = f"{business_date(datetime.now()):%Y%m%d}"
+
     return {
         "base_dir": Path(cfg["base_dir"]).resolve(),
         "flip": cfg["flip"],
@@ -76,6 +98,7 @@ def parse_args() -> dict:
         "gop": cfg["gop"],
         "ignore_hours": args.ignore_hours or cfg["ignore_hours"],
         "pid_file": args.pid_file,
+        "upload_date": upload_date,
     }
 
 
@@ -115,10 +138,52 @@ def _bulk_sender_loop() -> None:
         logging.info("Bulk side-video send succeeded")
 
 
+def _attempt_upload_or_reschedule(date: str, base_dir: Path, remote: dict | None, script_path: Path) -> None:
+    """Upload date's videos; on any failure (or missing settings), schedule a retry via at(1)."""
+    if not remote or "AWS" not in remote or "RECORDING" not in remote:
+        logging.warning("Missing AWS/RECORDING settings; cannot upload %s, scheduling retry", date)
+        schedule_upload_retry(date, script_path)
+        return
+
+    aws = remote["AWS"]
+    s3_location = remote["RECORDING"].get("s3-location")
+    if not s3_location:
+        logging.warning("No s3-location configured; cannot upload %s, scheduling retry", date)
+        schedule_upload_retry(date, script_path)
+        return
+
+    retention_days = int(remote.get("SIDE_CAMERA", {}).get("retention", 3))
+    api_key = remote.get("API", {}).get("api-key")
+
+    ok = upload_videos_for_date(
+        date=date,
+        base_dir=base_dir,
+        s3_location=s3_location,
+        aws_access_key=aws.get("access-key"),
+        aws_secret_key=aws.get("secret-key"),
+        aws_region=aws.get("default-region"),
+        api_key=api_key,
+    )
+    if ok:
+        logging.info("Upload complete for %s", date)
+    else:
+        logging.warning("Upload incomplete for %s, scheduling retry", date)
+        schedule_upload_retry(date, script_path)
+
+    cleanup_old_uploads(base_dir, retention_days)
+
+
 def main() -> None:
     setup_logging()
     args = parse_args()
     base_dir = args["base_dir"]
+    script_path = Path(__file__).resolve()
+
+    if args["upload_date"] is not None:
+        remote = fetch_remote_settings()
+        _attempt_upload_or_reschedule(args["upload_date"], base_dir, remote, script_path)
+        sys.exit(0)
+
     pid_path = (
         Path(args["pid_file"]).expanduser().resolve()
         if args["pid_file"]
@@ -150,10 +215,9 @@ def main() -> None:
     if args["ignore_hours"]:
         business_start = business_end = None
 
-    script_path = Path(__file__).resolve()
-
     if business_start is not None and business_end is not None:
         now = datetime.now()
+        session_date = f"{now:%Y%m%d}"
         start_h, start_m = business_start
         end_h, end_m = business_end
 
@@ -176,6 +240,7 @@ def main() -> None:
             duration_seconds=duration,
         )
         logging.info("Recording session ended")
+        _attempt_upload_or_reschedule(session_date, base_dir, remote, script_path)
         sys.exit(0)
 
     if not args["ignore_hours"] and not is_recording_hours():
