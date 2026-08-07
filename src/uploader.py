@@ -3,6 +3,7 @@
 import csv
 import logging
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -14,6 +15,37 @@ UPLOAD_STATUS_CSV_PATH = CACHE_DIR / "uploads.csv"
 LOCK_PATH = Path(__file__).resolve().parent.parent / ".upload.lock"
 
 _csv_lock = threading.Lock()
+
+
+class _UploadProgressBar:
+    """boto3 upload_file Callback: draws an in-place progress bar on the terminal."""
+
+    _BAR_WIDTH = 30
+
+    def __init__(self, filename: str, total_bytes: int):
+        self._filename = filename
+        self._total_bytes = total_bytes
+        self._seen_bytes = 0
+        self._last_pct = -1
+        self._lock = threading.Lock()
+        self._enabled = sys.stdout.isatty()
+
+    def __call__(self, bytes_amount: int) -> None:
+        if not self._enabled:
+            return
+        with self._lock:
+            self._seen_bytes += bytes_amount
+            pct = int(self._seen_bytes * 100 / self._total_bytes) if self._total_bytes else 100
+            if pct == self._last_pct:
+                return
+            self._last_pct = pct
+            filled = int(self._BAR_WIDTH * pct / 100)
+            bar = "#" * filled + "-" * (self._BAR_WIDTH - filled)
+            sys.stdout.write(f"\r{self._filename[:30]:<30} [{bar}] {pct:3d}%")
+            sys.stdout.flush()
+            if pct >= 100:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
 
 
 def _read_uploaded_filenames(date: str) -> set[str]:
@@ -73,7 +105,6 @@ def upload_videos_for_date(
     aws_access_key: str,
     aws_secret_key: str,
     aws_region: str,
-    api_key: str | None = None,
 ) -> bool:
     """
     Upload every <date>_*.mp4 in base_dir to S3 that isn't already recorded as
@@ -127,7 +158,9 @@ def upload_videos_for_date(
             local_size = path.stat().st_size
             started = time.monotonic()
             try:
-                client.upload_file(str(path), bucket, key)
+                client.upload_file(
+                    str(path), bucket, key, Callback=_UploadProgressBar(path.name, local_size)
+                )
                 head = client.head_object(Bucket=bucket, Key=key)
                 if head["ContentLength"] != local_size:
                     raise ValueError(
@@ -142,7 +175,6 @@ def upload_videos_for_date(
                     name=path.stem,
                     upload_speed=0.0,
                     is_completed=False,
-                    api_key=api_key,
                 )
                 continue
 
@@ -155,7 +187,6 @@ def upload_videos_for_date(
                 upload_speed=upload_speed,
                 is_completed=True,
                 video_url=video_url,
-                api_key=api_key,
             )
 
             with _csv_lock:

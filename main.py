@@ -9,12 +9,11 @@ import argparse
 import logging
 import os
 import sys
-import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from src.api import fetch_remote_settings, post_side_videos_bulk
+from src.api import fetch_remote_settings
 from config.config import CONFIG_PATH, load_config
 from src.recorder import run_recorder
 from src.schedule import (
@@ -122,22 +121,6 @@ def parse_bool(v: object) -> bool | None:
     return None
 
 
-def _bulk_sender_loop() -> None:
-    """Background thread: send bulk at HH:05 every hour, retry every 2 min on failure."""
-    while True:
-        now = datetime.now()
-        if now.minute < 5:
-            wait = (5 - now.minute) * 60 - now.second
-        else:
-            wait = (60 - now.minute + 5) * 60 - now.second
-        time.sleep(wait)
-
-        while not post_side_videos_bulk():
-            logging.warning("Bulk side-video send failed, retrying in 2 minutes")
-            time.sleep(120)
-        logging.info("Bulk side-video send succeeded")
-
-
 def _attempt_upload_or_reschedule(date: str, base_dir: Path, remote: dict | None, script_path: Path) -> None:
     """Upload date's videos; on any failure (or missing settings), schedule a retry via at(1)."""
     if not remote or "AWS" not in remote or "RECORDING" not in remote:
@@ -153,7 +136,6 @@ def _attempt_upload_or_reschedule(date: str, base_dir: Path, remote: dict | None
         return
 
     retention_days = int(remote.get("SIDE_CAMERA", {}).get("retention", 3))
-    api_key = remote.get("API", {}).get("api-key")
 
     ok = upload_videos_for_date(
         date=date,
@@ -162,7 +144,6 @@ def _attempt_upload_or_reschedule(date: str, base_dir: Path, remote: dict | None
         aws_access_key=aws.get("access-key"),
         aws_secret_key=aws.get("secret-key"),
         aws_region=aws.get("default-region"),
-        api_key=api_key,
     )
     if ok:
         logging.info("Upload complete for %s", date)
@@ -195,8 +176,6 @@ def main() -> None:
     business_end: tuple[int, int] | None = None
 
     write_pid_file(pid_path)
-
-    threading.Thread(target=_bulk_sender_loop, daemon=True, name="bulk-sender").start()
 
     remote = fetch_remote_settings()
     if remote:

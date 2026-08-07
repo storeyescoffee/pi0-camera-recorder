@@ -10,8 +10,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .api import append_side_video_to_csv
-
 _OVERLAY_W = 470
 _OVERLAY_H = 52
 _OVERLAY_PAD = 20
@@ -159,11 +157,6 @@ def run_recorder(
     )
 
     picam2.start_recording(encoder, PyavOutput(str(video_path)))
-    append_side_video_to_csv(
-        date=f"{started:%Y-%m-%d}",
-        hour=started.hour,
-        name=video_path.stem,
-    )
 
     try:
         if duration_seconds:
