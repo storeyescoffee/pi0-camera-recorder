@@ -63,6 +63,7 @@ def post_side_video(
     upload_speed: float,
     is_completed: bool,
     video_url: str | None = None,
+    birth_time: str | None = None,
 ) -> dict | None:
     """
     POST an upload result (completed or failed attempt) to POST /device-gw/side-videos.
@@ -70,6 +71,7 @@ def post_side_video(
     date: ISO date (e.g. 2026-08-06)
     name: max 255 chars
     video_url: max 1024 chars, omitted when the upload didn't produce one (e.g. failure)
+    birth_time: video file's creation time as HH:MM:SS, omitted when unavailable
     Returns response body on 200/201, None on failure.
     """
     if not _get_pi_serial():
@@ -84,6 +86,8 @@ def post_side_video(
     }
     if video_url:
         payload["videoUrl"] = video_url[:1024]
+    if birth_time:
+        payload["birthTime"] = birth_time
 
     body = json.dumps(payload)
     try:

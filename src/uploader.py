@@ -3,6 +3,7 @@
 import csv
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -46,6 +47,25 @@ class _UploadProgressBar:
             if pct >= 100:
                 sys.stdout.write("\n")
                 sys.stdout.flush()
+
+
+def _video_birth_time(path: Path) -> str | None:
+    """Video file's birth (creation) time as local HH:MM:SS, via `stat -c %W`. None if the filesystem doesn't report it."""
+    try:
+        result = subprocess.run(
+            ["stat", "-c", "%W", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        epoch = int(result.stdout.strip())
+        if epoch <= 0:
+            return None
+        return datetime.fromtimestamp(epoch).strftime("%H:%M:%S")
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        return None
 
 
 def _read_uploaded_filenames(date: str) -> set[str]:
@@ -156,6 +176,7 @@ def upload_videos_for_date(
 
             key = f"{key_prefix}/{date}/{path.name}" if key_prefix else f"{date}/{path.name}"
             local_size = path.stat().st_size
+            birth_time = _video_birth_time(path)
             started = time.monotonic()
             try:
                 client.upload_file(
@@ -175,6 +196,7 @@ def upload_videos_for_date(
                     name=path.stem,
                     upload_speed=0.0,
                     is_completed=False,
+                    birth_time=birth_time,
                 )
                 continue
 
@@ -187,6 +209,7 @@ def upload_videos_for_date(
                 upload_speed=upload_speed,
                 is_completed=True,
                 video_url=video_url,
+                birth_time=birth_time,
             )
 
             with _csv_lock:
