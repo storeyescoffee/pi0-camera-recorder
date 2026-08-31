@@ -216,36 +216,23 @@ def upload_videos_for_date(
                 _append_uploaded(date, path.name, datetime.now())
             logging.info("Uploaded %s to s3://%s/%s", path.name, bucket, key)
 
+            try:
+                path.unlink()
+                logging.info("Deleted local %s after successful upload", path.name)
+            except OSError as e:
+                logging.warning("Could not delete %s after upload: %s", path.name, e)
+
         return all_ok
     finally:
         _release_lock()
 
 
 def cleanup_old_uploads(base_dir: Path, retention_days: int) -> None:
-    """Delete local files uploaded more than retention_days*24h ago. Keeps the CSV record."""
-    if not UPLOAD_STATUS_CSV_PATH.exists():
-        return
-
-    cutoff = datetime.now() - timedelta(days=retention_days)
-    with _csv_lock:
-        rows = []
-        with open(UPLOAD_STATUS_CSV_PATH, newline="") as f:
-            for row in csv.reader(f):
-                if len(row) == 3:
-                    rows.append(row)
-
-    for _date, filename, uploaded_at in rows:
+    """Delete local <date>_*.mp4 files for the date exactly retention_days ago, by filename date prefix."""
+    cutoff_date = (datetime.now() - timedelta(days=retention_days)).strftime("%Y%m%d")
+    for path in base_dir.glob(f"{cutoff_date}_*.mp4"):
         try:
-            uploaded_ts = datetime.fromisoformat(uploaded_at)
-        except ValueError:
-            continue
-        if uploaded_ts > cutoff:
-            continue
-
-        path = base_dir / filename
-        if path.exists():
-            try:
-                path.unlink()
-                logging.info("Deleted %s (uploaded %s, past %dd retention)", filename, uploaded_at, retention_days)
-            except OSError as e:
-                logging.warning("Could not delete %s: %s", filename, e)
+            path.unlink()
+            logging.info("Deleted %s (past %dd retention)", path.name, retention_days)
+        except OSError as e:
+            logging.warning("Could not delete %s: %s", path.name, e)
