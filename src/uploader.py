@@ -180,7 +180,16 @@ def upload_videos_for_date(
             started = time.monotonic()
             try:
                 client.upload_file(
-                    str(path), bucket, key, Callback=_UploadProgressBar(path.name, local_size)
+                    str(path),
+                    bucket,
+                    key,
+                    # Serve the object inline so a client can play it straight from
+                    # the URL in a browser instead of being forced to download it.
+                    ExtraArgs={
+                        "ContentType": "video/mp4",
+                        "ContentDisposition": "inline",
+                    },
+                    Callback=_UploadProgressBar(path.name, local_size),
                 )
                 head = client.head_object(Bucket=bucket, Key=key)
                 if head["ContentLength"] != local_size:

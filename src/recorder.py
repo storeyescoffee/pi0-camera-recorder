@@ -6,6 +6,8 @@ via FrameDurationLimits (microseconds per frame).
 
 import logging
 import secrets
+import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -76,6 +78,52 @@ def _make_timestamp_callback():
             roi[bright] = 235
 
     return callback
+
+
+def _faststart_remux(path: Path) -> None:
+    """
+    Rewrite the MP4 in place with the moov atom moved to the front
+    (ffmpeg -movflags +faststart), so it streams progressively when served
+    from a URL (e.g. S3) instead of requiring a full download first.
+
+    Stream copy only (no re-encode). No-op if ffmpeg is missing; on any
+    failure the original file is left untouched.
+    """
+    if shutil.which("ffmpeg") is None:
+        logging.warning("ffmpeg not found; skipping faststart remux of %s", path.name)
+        return
+
+    tmp = path.with_name(path.stem + ".faststart" + path.suffix)
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(path),
+                "-c", "copy", "-movflags", "+faststart",
+                str(tmp),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if result.returncode != 0 or not tmp.exists():
+            logging.warning(
+                "faststart remux failed for %s: %s", path.name, result.stderr.strip()
+            )
+            _unlink_quiet(tmp)
+            return
+        tmp.replace(path)
+        logging.info("Remuxed %s with +faststart", path.name)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logging.warning("faststart remux error for %s: %s", path.name, e)
+        _unlink_quiet(tmp)
+
+
+def _unlink_quiet(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def run_recorder(
@@ -169,3 +217,4 @@ def run_recorder(
     finally:
         picam2.stop_recording()
         logging.info("Stopped recording %s", video_path.name)
+        _faststart_remux(video_path)

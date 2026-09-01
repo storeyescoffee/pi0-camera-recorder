@@ -22,6 +22,7 @@ apt-get update -y
 # - python3-picamera2: Picamera2 library + libcamera bindings
 # - python3-av: PyAV bindings used by picamera2.outputs.PyavOutput to write MP4
 # - python3-boto3: AWS SDK, used by src/uploader.py to push recordings to S3
+# - ffmpeg: faststart remux of recordings (src/recorder.py) for progressive streaming
 # - at: used by schedule.py (at/atq/atrm)
 # - cron: to run at boot
 apt-get install -y --no-install-recommends \
@@ -29,6 +30,7 @@ apt-get install -y --no-install-recommends \
   python3-picamera2 \
   python3-av \
   python3-boto3 \
+  ffmpeg \
   at \
   cron
 

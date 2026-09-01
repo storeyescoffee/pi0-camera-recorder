@@ -3,6 +3,8 @@
 #
 # picamera2 depends on system libcamera; PyavOutput uses av for MP4 muxing.
 # boto3 is the AWS SDK used by src/uploader.py to push recordings to S3.
+# ffmpeg (CLI) is required for the faststart remux in src/recorder.py:
+#   sudo apt install ffmpeg
 #
 # For non-Pi dev/testing environments without apt access, pip works too:
 #   pip install boto3
