@@ -159,6 +159,10 @@ def upload_videos_for_date(
 
         key_root = s3_location[5:] if s3_location.startswith("s3://") else s3_location
         bucket, _, key_prefix = key_root.partition("/")
+        # Side videos live next to the configured location, not inside it:
+        # <s3-location>/../side-videos/<YYYY-MM-DD>/<file>.
+        parent_prefix = key_prefix.strip("/").rpartition("/")[0]
+        side_prefix = f"{parent_prefix}/side-videos" if parent_prefix else "side-videos"
 
         client = boto3.client(
             "s3",
@@ -174,7 +178,7 @@ def upload_videos_for_date(
             if path.name in already_uploaded:
                 continue
 
-            key = f"{key_prefix}/{date}/{path.name}" if key_prefix else f"{date}/{path.name}"
+            key = f"{side_prefix}/{iso_date}/{path.name}"
             local_size = path.stat().st_size
             birth_time = _video_birth_time(path)
             started = time.monotonic()
