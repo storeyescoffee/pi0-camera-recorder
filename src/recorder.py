@@ -126,6 +126,27 @@ def _unlink_quiet(path: Path) -> None:
         pass
 
 
+def _make_h264_encoder(bitrate: int, fps: int, gop: int):
+    """
+    Hardware V4L2 H.264 encoder when available (Pi Zero/3/4), else software
+    libx264 via PyAV (Pi 5 has no hardware H.264 encoder).
+    """
+    if Path("/dev/video11").exists():
+        from picamera2.encoders import H264Encoder
+
+        encoder = H264Encoder(bitrate=bitrate)
+        encoder.iperiod = gop
+        logging.info("Using hardware H.264 encoder")
+        return encoder
+
+    from picamera2.encoders import LibavH264Encoder
+
+    encoder = LibavH264Encoder(bitrate=bitrate, iperiod=gop, framerate=fps)
+    encoder.preset = "ultrafast"
+    logging.info("No hardware H.264 encoder found; using software libx264 (ultrafast)")
+    return encoder
+
+
 def run_recorder(
     base_dir: Path,
     flip: bool,
@@ -143,7 +164,6 @@ def run_recorder(
     try:
         from libcamera import Transform
         from picamera2 import Picamera2
-        from picamera2.encoders import H264Encoder
         from picamera2.outputs import PyavOutput
     except ImportError as e:
         raise ImportError(
@@ -185,9 +205,8 @@ def run_recorder(
     if timestamp_cb:
         picam2.pre_callback = timestamp_cb
 
-    encoder = H264Encoder(bitrate=bitrate)
     # Keyframe interval in frames; gop = 2 * fps gives a 2-second GOP at 25 fps.
-    encoder.iperiod = gop
+    encoder = _make_h264_encoder(bitrate, fps, gop)
 
     started = datetime.now()
     video_path = new_video_path(base_dir, started)
