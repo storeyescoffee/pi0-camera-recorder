@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs system dependencies and configures a @reboot cron job.
+# Installs system dependencies and a @reboot cron job in /etc/cron.d.
 # Run on Raspberry Pi OS / Debian-based systems:
 #   chmod +x install.sh && sudo ./install.sh
 
@@ -39,29 +39,42 @@ systemctl enable --now cron >/dev/null 2>&1 || true
 systemctl enable --now atd >/dev/null 2>&1 || true
 
 
-echo "[INFO] Installing @reboot crontab entry (idempotent)..."
+echo "[INFO] Installing @reboot cron job in /etc/cron.d..."
 
 CRON_MARKER="# pi0-camera-recorder"
-CRON_CMD="@reboot cd \"${REPO_DIR}\" && /usr/bin/python3 main.py ${CRON_MARKER}"
+CRON_FILE="/etc/cron.d/pi0-camera-recorder"
 
-# Install for a target user (default: the sudo user if present, else current user)
+# Run as the invoking user (default: the sudo user if present, else current user)
 TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
 if [[ -z "${TARGET_USER}" ]]; then
   TARGET_USER="$(id -un)"
 fi
 
-TMP="$(mktemp)"
-trap 'rm -f "${TMP}"' EXIT
+CRON_CMD="@reboot ${TARGET_USER} cd \"${REPO_DIR}\" && /usr/bin/python3 main.py"
 
-# Keep existing lines except ones we own (marked).
-crontab -u "${TARGET_USER}" -l 2>/dev/null \
-  | awk -v marker="${CRON_MARKER}" 'index($0, marker) == 0 { print }' \
-  > "${TMP}" || true
+# cron.d files need a user field, root ownership, mode 0644 and a trailing newline.
+cat > "${CRON_FILE}" <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-echo "${CRON_CMD}" >> "${TMP}"
-crontab -u "${TARGET_USER}" "${TMP}"
+${CRON_CMD}
+CRON
+chown root:root "${CRON_FILE}"
+chmod 0644 "${CRON_FILE}"
 
-echo "[INFO] Done. Crontab for ${TARGET_USER} now includes:"
+# Remove the entry older versions of this script put in the user's crontab,
+# so the recorder isn't started twice at boot.
+if crontab -u "${TARGET_USER}" -l 2>/dev/null | grep -qF "${CRON_MARKER}"; then
+  TMP="$(mktemp)"
+  trap 'rm -f "${TMP}"' EXIT
+  crontab -u "${TARGET_USER}" -l 2>/dev/null \
+    | awk -v marker="${CRON_MARKER}" 'index($0, marker) == 0 { print }' \
+    > "${TMP}" || true
+  crontab -u "${TARGET_USER}" "${TMP}"
+  echo "[INFO] Removed legacy entry from ${TARGET_USER}'s crontab"
+fi
+
+echo "[INFO] Done. ${CRON_FILE}:"
 echo "       ${CRON_CMD}"
 
 chmod +x "$SCRIPT_DIR/start.sh" "$SCRIPT_DIR/stop.sh"
