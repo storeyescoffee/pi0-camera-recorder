@@ -1,5 +1,6 @@
 """Business hours and at(1) scheduling."""
 
+import logging
 import shutil
 import subprocess
 import sys
@@ -76,7 +77,7 @@ def _clear_at_queue(queue: str = "a") -> None:
 def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> None:
     """Schedule script to run at start-time using at(1), queue 'a'. Drops existing queue-'a' jobs first."""
     if shutil.which("at") is None:
-        print("[ERROR] 'at' command not found. Install with: apt install at", file=sys.stderr)
+        logging.error("'at' command not found. Install with: apt install at")
         sys.exit(1)
 
     _clear_at_queue("a")
@@ -98,15 +99,15 @@ def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> 
         capture_output=True,
     )
     if proc.returncode != 0:
-        print(f"[ERROR] Failed to schedule at {at_spec}: {proc.stderr.decode()}", file=sys.stderr)
+        logging.error("Failed to schedule at %s: %s", at_spec, proc.stderr.decode().strip())
         sys.exit(1)
-    print(f"[INFO] Scheduled next run at {at_spec}")
+    logging.info("Scheduled next run at %s (%s) via at(1)", at_spec, f"{start_dt:%Y-%m-%d %H:%M}")
 
 
 def schedule_upload_retry(date: str, script_path: Path | None = None, delay_minutes: int = 10) -> None:
     """Schedule an upload retry via at(1), queue 'u'. Drops existing queue-'u' jobs first."""
     if shutil.which("at") is None:
-        print("[ERROR] 'at' command not found. Install with: apt install at", file=sys.stderr)
+        logging.error("'at' command not found. Install with: apt install at")
         sys.exit(1)
 
     _clear_at_queue("u")
@@ -120,9 +121,8 @@ def schedule_upload_retry(date: str, script_path: Path | None = None, delay_minu
         capture_output=True,
     )
     if proc.returncode != 0:
-        print(
-            f"[ERROR] Failed to schedule upload retry for {date}: {proc.stderr.decode()}",
-            file=sys.stderr,
+        logging.error(
+            "Failed to schedule upload retry for %s: %s", date, proc.stderr.decode().strip()
         )
         sys.exit(1)
-    print(f"[INFO] Scheduled upload retry for {date} in {delay_minutes} minutes")
+    logging.info("Scheduled upload retry for %s in %d minutes", date, delay_minutes)

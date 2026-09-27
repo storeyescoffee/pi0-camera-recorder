@@ -219,7 +219,10 @@ def main() -> None:
             duration_seconds=duration,
         )
         logging.info("Recording session ended")
-        _attempt_upload_or_reschedule(session_date, base_dir, remote, script_path)
+        try:
+            _attempt_upload_or_reschedule(session_date, base_dir, remote, script_path)
+        finally:
+            schedule_at(start_h, start_m, script_path)
         sys.exit(0)
 
     if not args["ignore_hours"] and not is_recording_hours():
