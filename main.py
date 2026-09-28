@@ -207,6 +207,9 @@ def main() -> None:
 
         duration = seconds_until_end_time(now, end_h, end_m)
         logging.info("Recording to %s until end-time (%ds remaining)", base_dir, duration)
+        # Queue the next session now, not only at end-time, so a crash or kill mid-session
+        # doesn't leave nothing scheduled. Rescheduled again after upload below.
+        schedule_at(start_h, start_m, script_path)
 
         run_recorder(
             base_dir=base_dir,

@@ -75,15 +75,18 @@ def _clear_at_queue(queue: str = "a") -> None:
 
 
 def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> None:
-    """Schedule script to run at start-time using at(1), queue 'a'. Drops existing queue-'a' jobs first."""
+    """Schedule script to run at start-time using at(1), queue 'a'. Drops existing queue-'a' jobs first.
+
+    Failures are logged and ignored: the recorder must not die because scheduling is unavailable.
+    """
     if shutil.which("at") is None:
         logging.error("'at' command not found. Install with: apt install at")
-        sys.exit(1)
+        return
 
     _clear_at_queue("a")
 
     script = script_path or Path(__file__).resolve().parent / "main.py"
-    cmd = f"python3 {script}"
+    cmd = f"cd {script.parent} && python3 {script}"
 
     now = datetime.now()
     start_dt = next_start_datetime(now, start_h, start_m)
@@ -100,7 +103,7 @@ def schedule_at(start_h: int, start_m: int, script_path: Path | None = None) -> 
     )
     if proc.returncode != 0:
         logging.error("Failed to schedule at %s: %s", at_spec, proc.stderr.decode().strip())
-        sys.exit(1)
+        return
     logging.info("Scheduled next run at %s (%s) via at(1)", at_spec, f"{start_dt:%Y-%m-%d %H:%M}")
 
 
